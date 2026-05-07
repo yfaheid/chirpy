@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"sync/atomic"
 )
@@ -10,9 +12,10 @@ func main() {
 	mux := http.NewServeMux()
 	var apiCfg apiConfig
 	mux.Handle("/app/", http.StripPrefix("/app", apiCfg.middlewareMetricsInc(http.FileServer(http.Dir(".")))))
-	mux.HandleFunc("GET /healthz", handlerReadiness)
-	mux.HandleFunc("GET /metrics", apiCfg.handlerMetrics)
-	mux.HandleFunc("POST /reset", apiCfg.handlerReset)
+	mux.HandleFunc("GET /api/healthz", handlerReadiness)
+	mux.HandleFunc("GET /admin/metrics", apiCfg.handlerMetrics)
+	mux.HandleFunc("POST /admin/reset", apiCfg.handlerReset)
+	mux.HandleFunc("POST /api/validate_chirp", handlerValidate)
 	server := http.Server{Handler: mux, Addr: ":8080"}
 	server.ListenAndServe()
 }
@@ -35,9 +38,16 @@ func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 }
 
 func (cfg *apiConfig) handlerMetrics(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(200)
-	count := fmt.Sprintf("Hits: %v", cfg.fileserverHits.Load())
+
+	count := fmt.Sprintf(`
+<html>
+  <body>
+    <h1>Welcome, Chirpy Admin</h1>
+    <p>Chirpy has been visited %d times!</p>
+  </body>
+</html>`, cfg.fileserverHits.Load())
 	w.Write([]byte(count))
 }
 
@@ -46,4 +56,52 @@ func (cfg *apiConfig) handlerReset(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(200)
 	w.Write([]byte("OK"))
+}
+
+func handlerValidate(w http.ResponseWriter, r *http.Request) {
+	type parameters struct {
+		Body string `json:"body"`
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
+	if err != nil {
+		log.Printf("Error decoding parameters: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	type errorResponse struct {
+		Error string `json:"error"`
+	}
+
+	type successResponse struct {
+		Valid bool `json:"valid"`
+	}
+	errorRespBody := errorResponse{}
+	successRespBody := successResponse{}
+	if len(params.Body) > 140 {
+		errorRespBody.Error = "Chirp is too long"
+		dat, err := json.Marshal(errorRespBody)
+		if err != nil {
+			log.Printf("Error marshalling JSON: %s", err)
+			w.WriteHeader(500)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(400)
+		w.Write(dat)
+	} else {
+		successRespBody.Valid = true
+		dat, err := json.Marshal(successRespBody)
+		if err != nil {
+			log.Printf("Error marshalling JSON: %s", err)
+			w.WriteHeader(500)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		w.Write(dat)
+	}
 }
