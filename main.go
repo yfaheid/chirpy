@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync/atomic"
 )
 
@@ -76,11 +77,12 @@ func handlerValidate(w http.ResponseWriter, r *http.Request) {
 		Error string `json:"error"`
 	}
 
-	type successResponse struct {
-		Valid bool `json:"valid"`
+	type cleanedResponse struct {
+		CleanedBody string `json:"cleaned_body"`
 	}
+
 	errorRespBody := errorResponse{}
-	successRespBody := successResponse{}
+	cleanedRespBody := cleanedResponse{}
 	if len(params.Body) > 140 {
 		errorRespBody.Error = "Chirp is too long"
 		dat, err := json.Marshal(errorRespBody)
@@ -93,8 +95,14 @@ func handlerValidate(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(400)
 		w.Write(dat)
 	} else {
-		successRespBody.Valid = true
-		dat, err := json.Marshal(successRespBody)
+		words := strings.Split(params.Body, " ")
+		for i, word := range words {
+			if strings.ToLower(word) == "kerfuffle" || strings.ToLower(word) == "sharbert" || strings.ToLower(word) == "fornax" {
+				words[i] = "****"
+			}
+		}
+		cleanedRespBody.CleanedBody = strings.Join(words, " ")
+		dat, err := json.Marshal(cleanedRespBody)
 		if err != nil {
 			log.Printf("Error marshalling JSON: %s", err)
 			w.WriteHeader(500)
