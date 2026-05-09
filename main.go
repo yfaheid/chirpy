@@ -34,7 +34,7 @@ func main() {
 	mux.HandleFunc("GET /api/healthz", handlerReadiness)
 	mux.HandleFunc("GET /admin/metrics", apiCfg.handlerMetrics)
 	mux.HandleFunc("POST /admin/reset", apiCfg.handlerReset)
-	mux.HandleFunc("POST /api/validate_chirp", handlerValidate)
+	mux.HandleFunc("POST /api/chirps", apiCfg.handlerChirps)
 	mux.HandleFunc("POST /api/users", apiCfg.handlerUsers)
 	server := http.Server{Handler: mux, Addr: ":8080"}
 	server.ListenAndServe()
@@ -90,9 +90,18 @@ func (cfg *apiConfig) handlerReset(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("OK"))
 }
 
-func handlerValidate(w http.ResponseWriter, r *http.Request) {
+type Chirp struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Body      string    `json:"body"`
+	UserID    uuid.UUID `json:"user_id"`
+}
+
+func (cfg *apiConfig) handlerChirps(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		Body string `json:"body"`
+		Body   string    `json:"body"`
+		UserID uuid.UUID `json:"user_id"`
 	}
 
 	decoder := json.NewDecoder(r.Body)
@@ -108,12 +117,7 @@ func handlerValidate(w http.ResponseWriter, r *http.Request) {
 		Error string `json:"error"`
 	}
 
-	type cleanedResponse struct {
-		CleanedBody string `json:"cleaned_body"`
-	}
-
 	errorRespBody := errorResponse{}
-	cleanedRespBody := cleanedResponse{}
 	if len(params.Body) > 140 {
 		errorRespBody.Error = "Chirp is too long"
 		dat, err := json.Marshal(errorRespBody)
@@ -132,15 +136,22 @@ func handlerValidate(w http.ResponseWriter, r *http.Request) {
 				words[i] = "****"
 			}
 		}
-		cleanedRespBody.CleanedBody = strings.Join(words, " ")
-		dat, err := json.Marshal(cleanedRespBody)
+		cleanedBody := strings.Join(words, " ")
+		chirp, err := cfg.db.CreateChirp(r.Context(), database.CreateChirpParams{Body: cleanedBody, UserID: params.UserID})
+		if err != nil {
+			log.Printf("Error marshalling JSON: %s", err)
+			w.WriteHeader(500)
+			return
+		}
+		newChirp := Chirp{ID: chirp.ID, CreatedAt: chirp.CreatedAt, UpdatedAt: chirp.UpdatedAt, Body: chirp.Body, UserID: chirp.UserID}
+		dat, err := json.Marshal(newChirp)
 		if err != nil {
 			log.Printf("Error marshalling JSON: %s", err)
 			w.WriteHeader(500)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(200)
+		w.WriteHeader(201)
 		w.Write(dat)
 	}
 }
