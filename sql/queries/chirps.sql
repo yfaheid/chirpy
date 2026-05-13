@@ -6,7 +6,6 @@ VALUES (
     NOW(),
     $1,
     $2
-
 )
 RETURNING *;
 

@@ -19,7 +19,6 @@ VALUES (
     NOW(),
     $1,
     $2
-
 )
 RETURNING id, created_at, updated_at, body, user_id
 `
