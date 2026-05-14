@@ -45,6 +45,7 @@ func main() {
 	mux.HandleFunc("POST /api/refresh", apiCfg.handlerRefresh)
 	mux.HandleFunc("POST /api/revoke", apiCfg.handlerRevoke)
 	mux.HandleFunc("PUT /api/users", apiCfg.handlerUsersUpdate)
+	mux.HandleFunc("DELETE /api/chirps/{chirpID}", apiCfg.handlerChirpsDelete)
 	server := http.Server{Handler: mux, Addr: ":8080"}
 	server.ListenAndServe()
 }
@@ -429,4 +430,43 @@ func (cfg *apiConfig) handlerUsersUpdate(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
 	w.Write(dat)
+}
+
+func (cfg *apiConfig) handlerChirpsDelete(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("chirpID"))
+	if err != nil {
+		log.Printf("Error parsing ID to UUID: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+	chirp, err := cfg.db.GetChirp(r.Context(), id)
+	if err != nil {
+		log.Printf("Error getting chirp: %s", err)
+		w.WriteHeader(404)
+		return
+	}
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		log.Printf("Error getting token: %s", err)
+		w.WriteHeader(401)
+		return
+	}
+	userID, err := auth.ValidateJWT(token, cfg.secret)
+	if err != nil {
+		log.Printf("Error validating token: %s", err)
+		w.WriteHeader(401)
+		return
+	}
+	if userID != chirp.UserID {
+		log.Printf("Incorrect user ID: %s", err)
+		w.WriteHeader(403)
+		return
+	}
+	err = cfg.db.DeleteChirp(r.Context(), chirp.ID)
+	if err != nil {
+		log.Printf("Error deleting chirp: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+	w.WriteHeader(204)
 }
