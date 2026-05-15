@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -232,6 +233,36 @@ func (cfg *apiConfig) handlerUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg *apiConfig) handlerGetChirps(w http.ResponseWriter, r *http.Request) {
+	author_id := r.URL.Query().Get("author_id")
+	sortParam := r.URL.Query().Get("sort")
+	if len(author_id) > 0 {
+		authorID, err := uuid.Parse(author_id)
+		if err != nil {
+			log.Printf("Error getting authorID: %s", err)
+			w.WriteHeader(404)
+			return
+		}
+		chirps, err := cfg.db.GetChirpsByAuthor(r.Context(), authorID)
+		var allChirps []Chirp
+		for _, chirp := range chirps {
+			allChirps = append(allChirps, Chirp{ID: chirp.ID, CreatedAt: chirp.CreatedAt, UpdatedAt: chirp.UpdatedAt, Body: chirp.Body, UserID: chirp.UserID})
+		}
+		if sortParam == "desc" {
+			sort.Slice(allChirps, func(i, j int) bool {
+				return allChirps[i].CreatedAt.After(allChirps[j].CreatedAt)
+			})
+		}
+		dat, err := json.Marshal(allChirps)
+		if err != nil {
+			log.Printf("Error marshalling JSON: %s", err)
+			w.WriteHeader(500)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		w.Write(dat)
+		return
+	}
 	chirps, err := cfg.db.GetChirps(r.Context())
 	if err != nil {
 		log.Printf("Error getting chirps: %s", err)
@@ -241,6 +272,11 @@ func (cfg *apiConfig) handlerGetChirps(w http.ResponseWriter, r *http.Request) {
 	var allChirps []Chirp
 	for _, chirp := range chirps {
 		allChirps = append(allChirps, Chirp{ID: chirp.ID, CreatedAt: chirp.CreatedAt, UpdatedAt: chirp.UpdatedAt, Body: chirp.Body, UserID: chirp.UserID})
+	}
+	if sortParam == "desc" {
+		sort.Slice(allChirps, func(i, j int) bool {
+			return allChirps[i].CreatedAt.After(allChirps[j].CreatedAt)
+		})
 	}
 	dat, err := json.Marshal(allChirps)
 	if err != nil {
