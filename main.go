@@ -46,6 +46,7 @@ func main() {
 	mux.HandleFunc("POST /api/revoke", apiCfg.handlerRevoke)
 	mux.HandleFunc("PUT /api/users", apiCfg.handlerUsersUpdate)
 	mux.HandleFunc("DELETE /api/chirps/{chirpID}", apiCfg.handlerChirpsDelete)
+	mux.HandleFunc("POST /api/polka/webhooks", apiCfg.handlerWebhooks)
 	server := http.Server{Handler: mux, Addr: ":8080"}
 	server.ListenAndServe()
 }
@@ -185,6 +186,7 @@ type User struct {
 	Email        string    `json:"email"`
 	Token        string    `json:"token"`
 	RefreshToken string    `json:"refresh_token"`
+	IsChripyRed  bool      `json:"is_chirpy_red"`
 }
 
 func (cfg *apiConfig) handlerUsers(w http.ResponseWriter, r *http.Request) {
@@ -213,7 +215,7 @@ func (cfg *apiConfig) handlerUsers(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 		return
 	}
-	newUser := User{ID: user.ID, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt, Email: user.Email}
+	newUser := User{ID: user.ID, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt, Email: user.Email, IsChripyRed: user.IsChirpyRed}
 
 	dat, err := json.Marshal(newUser)
 	if err != nil {
@@ -318,7 +320,7 @@ func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(401)
 		return
 	}
-	newUser := User{ID: user.ID, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt, Email: user.Email, Token: token, RefreshToken: dbRefreshToken.Token}
+	newUser := User{ID: user.ID, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt, Email: user.Email, Token: token, RefreshToken: dbRefreshToken.Token, IsChripyRed: user.IsChirpyRed}
 
 	dat, err := json.Marshal(newUser)
 	if err != nil {
@@ -420,7 +422,7 @@ func (cfg *apiConfig) handlerUsersUpdate(w http.ResponseWriter, r *http.Request)
 		w.WriteHeader(500)
 		return
 	}
-	resp := User{ID: user.ID, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt, Email: user.Email}
+	resp := User{ID: user.ID, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt, Email: user.Email, IsChripyRed: user.IsChirpyRed}
 	dat, err := json.Marshal(resp)
 	if err != nil {
 		log.Printf("Error marshalling JSON: %s", err)
@@ -466,6 +468,35 @@ func (cfg *apiConfig) handlerChirpsDelete(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		log.Printf("Error deleting chirp: %s", err)
 		w.WriteHeader(500)
+		return
+	}
+	w.WriteHeader(204)
+}
+
+func (cfg *apiConfig) handlerWebhooks(w http.ResponseWriter, r *http.Request) {
+	type parameters struct {
+		Event string `json:"event"`
+		Data  struct {
+			UserID uuid.UUID `json:"user_id"`
+		} `json:"data"`
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
+	if err != nil {
+		log.Printf("Error decoding parameters: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+	if params.Event != "user.upgraded" {
+		w.WriteHeader(204)
+		return
+	}
+	err = cfg.db.UpgradeUser(r.Context(), params.Data.UserID)
+	if err != nil {
+		log.Printf("Error upgrading user: %s", err)
+		w.WriteHeader(404)
 		return
 	}
 	w.WriteHeader(204)
