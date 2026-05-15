@@ -23,6 +23,7 @@ func main() {
 	dbURL := os.Getenv("DB_URL")
 	platform := os.Getenv("PLATFORM")
 	secret := os.Getenv("SECRET")
+	polkaKey := os.Getenv("POLKA_KEY")
 	dbConn, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatal(err)
@@ -33,6 +34,7 @@ func main() {
 	apiCfg.db = dbQueries
 	apiCfg.platform = platform
 	apiCfg.secret = secret
+	apiCfg.polkaKey = polkaKey
 	mux.Handle("/app/", http.StripPrefix("/app", apiCfg.middlewareMetricsInc(http.FileServer(http.Dir(".")))))
 	mux.HandleFunc("GET /api/healthz", handlerReadiness)
 	mux.HandleFunc("GET /admin/metrics", apiCfg.handlerMetrics)
@@ -62,6 +64,7 @@ type apiConfig struct {
 	db             *database.Queries
 	platform       string
 	secret         string
+	polkaKey       string
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -491,6 +494,16 @@ func (cfg *apiConfig) handlerWebhooks(w http.ResponseWriter, r *http.Request) {
 	}
 	if params.Event != "user.upgraded" {
 		w.WriteHeader(204)
+		return
+	}
+	key, err := auth.GetAPIKey(r.Header)
+	if err != nil {
+		log.Printf("Error getting API key: %s", err)
+		w.WriteHeader(401)
+		return
+	}
+	if cfg.polkaKey != key {
+		w.WriteHeader(401)
 		return
 	}
 	err = cfg.db.UpgradeUser(r.Context(), params.Data.UserID)
